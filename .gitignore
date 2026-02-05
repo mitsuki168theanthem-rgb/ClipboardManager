@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Build artifacts
+build/
+dist/
+*.spec
+
+# User Data & Config
+app.log
+config.json
+templates.json
+
+# Environment/IDE
+.env
+.vscode/
+.idea/
