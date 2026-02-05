@@ -2,6 +2,28 @@ import customtkinter as ctk
 import tkinter as tk
 from data_handler import DataHandler
 import ctypes
+from ctypes import Structure, c_long, c_ulong, byref, sizeof
+
+class POINT(Structure):
+    _fields_ = [("x", c_long), ("y", c_long)]
+
+class RECT(Structure):
+    _fields_ = [
+        ("left", c_long),
+        ("top", c_long),
+        ("right", c_long),
+        ("bottom", c_long)
+    ]
+
+class MONITORINFO(Structure):
+    _fields_ = [
+        ("cbSize", c_ulong),
+        ("rcMonitor", RECT),
+        ("rcWork", RECT),
+        ("dwFlags", c_ulong)
+    ]
+
+MONITOR_DEFAULTTONEAREST = 2
 
 # Configuration
 FONT_FAMILY = "Yu Gothic UI"
@@ -16,6 +38,8 @@ class MainWindow(ctk.CTk):
         super().__init__()
         self.title("Paste Template")
         self.geometry("600x400")
+        self.geometry("600x400")
+        # self.center_window() # Initially center, or let it handle itself on show
         self.center_window()
         self.on_paste_callback = on_paste_callback
         self.on_edit_callback = on_edit_callback
@@ -35,6 +59,73 @@ class MainWindow(ctk.CTk):
         x = (self.winfo_screenwidth() // 2) - (width // 2)
         y = (self.winfo_screenheight() // 2) - (height // 2)
         self.geometry(f'+{x}+{y}')
+
+    def move_to_cursor(self):
+        self.update_idletasks()
+        
+        # Get cursor position
+        pt = POINT()
+        ctypes.windll.user32.GetCursorPos(byref(pt))
+        cursor_x, cursor_y = pt.x, pt.y
+        
+        # Get window dimensions
+        width = self.winfo_width()
+        height = self.winfo_height()
+        
+        try:
+            # Find the monitor where the cursor is
+            hMonitor = ctypes.windll.user32.MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST)
+            
+            # Get Monitor Info
+            mi = MONITORINFO()
+            mi.cbSize = sizeof(MONITORINFO)
+            ctypes.windll.user32.GetMonitorInfoW(hMonitor, byref(mi))
+            
+            # Work Area (excluding taskbar)
+            work_left = mi.rcWork.left
+            work_top = mi.rcWork.top
+            work_right = mi.rcWork.right
+            work_bottom = mi.rcWork.bottom
+            
+            # Screen dimensions for debug log (work area size)
+            screen_width = work_right - work_left
+            screen_height = work_bottom - work_top
+            
+        except Exception as e:
+            print(f"Monitor detection failed: {e}. Fallback to basic.")
+            work_left = 0
+            work_top = 0
+            # Fallback to current screen info (likely primary)
+            screen_width = self.winfo_screenwidth()
+            screen_height = self.winfo_screenheight()
+            work_right = screen_width
+            work_bottom = screen_height
+
+        # Calculate functional position (default: top-left of window at cursor)
+        new_x = cursor_x
+        new_y = cursor_y
+        
+        # Boundary Checks relative to Work Area
+        # Adjustment margin
+        margin = 10 
+        
+        # Right edge check
+        if new_x + width > work_right:
+            new_x = work_right - width - margin
+            
+        # Bottom edge check
+        if new_y + height > work_bottom:
+            new_y = work_bottom - height - margin
+            
+        # Left edge check
+        if new_x < work_left:
+            new_x = work_left + margin
+            
+        # Top edge check
+        if new_y < work_top:
+            new_y = work_top + margin
+            
+        self.geometry(f'+{new_x}+{new_y}')
 
     def create_widgets(self):
         # Font settings
@@ -199,10 +290,16 @@ class MainWindow(ctk.CTk):
         print("Resetting and showing MainWindow...")
         self.search_var.set("") # Clear search
         self.refresh_list()
-        self.deiconify()
         
         # Robust 'Front' logic for Main Window
         try:
+            # Move to cursor BEFORE showing to avoid jump and race conditions
+            # Ensure geometry is updated
+            self.update_idletasks()
+            self.move_to_cursor()
+            
+            self.deiconify()
+            
             self.attributes('-topmost', True)
             self.lift()
             self.focus_force()
@@ -211,6 +308,10 @@ class MainWindow(ctk.CTk):
             self.after(200, lambda: self.attributes('-topmost', False))
         except Exception as e:
             print(f"Focus error: {e}")
+            # Ensure it shows even if move fails
+            self.deiconify()
+
+        self.search_entry.focus()
 
         self.search_entry.focus()
         
